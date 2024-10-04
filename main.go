@@ -52,6 +52,10 @@ func (p *parser) startParsing(fileDEM string) error {
 	p.parser.RegisterEventHandler(p.MatchStartHandler)
 	p.parser.RegisterEventHandler(p.TeamSideSwitch)
 	p.parser.RegisterEventHandler(p.ScoreUpdater)
+	p.parser.RegisterEventHandler(p.RoundEcon)
+	p.parser.RegisterEventHandler(p.Bombplanted)
+	p.parser.RegisterEventHandler(p.playergetter)
+	p.parser.RegisterEventHandler(p.killHandler)
 
 	e = p.parser.ParseToEnd()
 	check(e)
@@ -60,7 +64,7 @@ func (p *parser) startParsing(fileDEM string) error {
 }
 
 func main() {
-	demodir := "C:\\Users\\iphon\\Desktop\\DemoParseV2\\gun5-vs-passion-ua-m1-dust2.dem"
+	demodir := "C:\\Users\\Mike\\Desktop\\DemoParserV2\\3dmax-vs-zero-tenacity-m3-dust2.dem"
 
 	//have to do this or else it won't work because this is how golang works
 	data := &parser{Match: &MatchInfo{Round: make([]RoundInfo, 0)}}

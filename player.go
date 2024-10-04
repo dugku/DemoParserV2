@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/golang/geo/r3"
 	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/common"
 	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/events"
 	"time"
@@ -61,8 +60,9 @@ type roundKill struct {
 	KillerDmgTkn   int
 	VictimTeam     common.Team
 	VictRel        bool
-	positionKilled r3.Vector
-	KillerPos      r3.Vector
+	positionKilled victPos
+	KillerPos      killerPos
+	Opening        bool
 }
 
 type victPos struct {
@@ -134,7 +134,7 @@ func (p *parser) makeweapons() map[int]int {
 	return make(map[int]int)
 }
 
-func (p *parser) playergetter() {
+func (p *parser) playergetter(e events.RoundEnd) {
 	gs := p.parser.GameState()
 
 	TeamH := gs.TeamTerrorists().Members()
@@ -147,7 +147,7 @@ func (p *parser) playergetter() {
 
 func (p *parser) statsetter(c []*common.Player) {
 
-	gs := p.parser.GameState()
+	//gs := p.parser.GameState()
 
 	for i := range c {
 		steamId := c[i].SteamID64
@@ -167,6 +167,8 @@ func (p *parser) statsetter(c []*common.Player) {
 
 func (p *parser) killHandler(e events.Kill) {
 
+	opening := false
+
 	if e.Killer == nil || e.Victim == nil {
 		return
 	}
@@ -175,16 +177,28 @@ func (p *parser) killHandler(e events.Kill) {
 		p.state.warmupkill = append(p.state.warmupkill, e)
 	}
 
+	var assistorName string
+	if e.Assister != nil {
+		assistorName = e.Assister.Name
+	}
+
 	if e.Killer.ActiveWeapon() == nil {
 		return
 	}
 
-	if p.state.round < 0 && p.state.round < len(p.Match.Round) {
+	if p.state.round > 0 && p.state.round <= len(p.Match.Round) {
 		if p.Match.Round[p.state.round-1].RoundKills == nil {
 			p.Match.Round[p.state.round-1].RoundKills = make(map[int]roundKill)
 		}
 		count := len(p.Match.Round[p.state.round-1].RoundKills) + 1
-		if _, exists := p.Match.Round[p.state.round-1].RoundKills[count]; !exists {
+
+		if count == 1 {
+			opening = true
+		} else {
+			opening = false
+		}
+
+		if _, exists := p.Match.Round[p.state.round-1].RoundKills[count]; exists {
 			return
 		} else {
 
@@ -201,7 +215,7 @@ func (p *parser) killHandler(e events.Kill) {
 				TimeOfKill:     p.parser.CurrentTime(),
 				Killer:         e.Killer.Name,
 				Victim:         e.Victim.Name,
-				Assistor:       e.Assister.Name,
+				Assistor:       assistorName,
 				KillerId:       int64(e.Killer.SteamID64),
 				VictimId:       int64(e.Victim.SteamID64),
 				KillerTeam:     e.Killer.Team,
@@ -209,10 +223,11 @@ func (p *parser) killHandler(e events.Kill) {
 				IsHeadshot:     e.IsHeadshot,
 				VictFlashed:    e.Victim.IsBlinded(),
 				KillerFlashed:  e.Killer.IsBlinded(),
-				KillerDmgTkn:   e.Killer.Health(),
+				KillerDmgTkn:   100 - e.Killer.Health(),
 				VictRel:        e.Victim.IsReloading,
-				positionKilled: e.Victim.Position(),
-				KillerPos:      e.Killer.Position(),
+				positionKilled: VictKilAt,
+				KillerPos:      KillerAt,
+				Opening:        opening,
 			}
 			count++
 		}
