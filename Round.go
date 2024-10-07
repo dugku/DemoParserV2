@@ -34,6 +34,7 @@ type RoundInfo struct {
 	RoundEndReason string
 	Sidewon        string
 	RoundKills     map[int]roundKill
+	FirstKillCount int
 }
 
 func (p *parser) stateController(e events.RoundStart) {
@@ -57,18 +58,20 @@ func (p *parser) MatchStartHandler(e events.MatchStartedChanged) {
 		but everything went to shit for about 5 hours... So yeah.
 	*/
 
+	ActivePlayers := gs.Participants().Playing()
+
+	p.getActivePlayers(ActivePlayers)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		if e.NewIsStarted {
-			ActivePlayers := gs.Participants().Playing()
-
-			p.getActivePlayers(ActivePlayers)
-
-			coordDir := "C:\\Users\\Mike\\Desktop\\DemoParserV2\\mapCoords"
+			coordDir := "C:\\Users\\iphon\\Desktop\\DemoParseV2\\mapCoords"
 
 			p.Match.TeamOne.Side = common.TeamCounterTerrorists
 			p.Match.TeamTwo.Side = common.TeamTerrorists
+
+			p.Match.TeamOne.Name = p.parser.GameState().TeamCounterTerrorists().ClanName()
+			p.Match.TeamTwo.Name = p.parser.GameState().TeamTerrorists().ClanName()
 
 			p.Match.Map = p.parser.Header().MapName
 
@@ -206,7 +209,6 @@ func (p *parser) ComplexRoundEndStuff(e events.RoundEnd) {
 
 		roundInfo.RoundEndReason = ReasonsMap[int(Reason)]
 		roundInfo.Sidewon = WinnerMap[int(SideWon)]
-
 		p.PlayersSurvived()
 		p.TradeLogic()
 		p.SideKillLogic()
@@ -224,13 +226,13 @@ func (p *parser) PlayersSurvived() {
 			playerId := v.SteamID64
 			roundInfo.SurvivorsA = append(roundInfo.SurvivorsA, v.String())
 
-			playerStat, exists := p.Match.players[int64(playerId)]
+			playerStat, exists := p.Match.Players[int64(playerId)]
 
 			if !exists {
 				return
 			}
 			playerStat.RoundSurvived++
-			p.Match.players[int64(playerId)] = playerStat
+			p.Match.Players[int64(playerId)] = playerStat
 		}
 	}
 
@@ -240,14 +242,14 @@ func (p *parser) PlayersSurvived() {
 			playerId := v.SteamID64
 			roundInfo.SurvivorsB = append(roundInfo.SurvivorsB, v.String())
 
-			playerStat, exists := p.Match.players[int64(playerId)]
+			playerStat, exists := p.Match.Players[int64(playerId)]
 			if !exists {
 				return
 			}
 
 			playerStat.RoundSurvived++
 
-			p.Match.players[int64(playerId)] = playerStat
+			p.Match.Players[int64(playerId)] = playerStat
 		}
 	}
 }
@@ -264,7 +266,6 @@ func (p *parser) CheckTeamSur(team common.Team) []*common.Player {
 	return nil
 }
 func (p *parser) TradeLogic() {
-
 	roundInfo := &p.Match.Round[p.state.round-1]
 
 	for key, _ := range roundInfo.RoundKills {
@@ -272,11 +273,11 @@ func (p *parser) TradeLogic() {
 		if key+1 < len(roundInfo.RoundKills) {
 			nextValue := roundInfo.RoundKills[key+1]
 
-			if roundInfo.RoundKills[key].Killer == nextValue.Victim && ((nextValue.TimeOfKill - roundInfo.RoundKills[key].TimeOfKill) < (5*time.Second) {
+			if roundInfo.RoundKills[key].Killer == nextValue.Victim && ((nextValue.TimeOfKill - roundInfo.RoundKills[key].TimeOfKill) < (5 * time.Second)) {
 				TradeKillId := nextValue.KillerId
 				TradeVictId := nextValue.VictimId
 
-				playerStat, exists := p.Match.players[int64(TradeKillId)]
+				playerStat, exists := p.Match.Players[int64(TradeKillId)]
 
 				if !exists {
 					continue
@@ -284,9 +285,9 @@ func (p *parser) TradeLogic() {
 
 				playerStat.TradeKills++
 
-				p.Match.players[int64(TradeKillId)] = playerStat
+				p.Match.Players[int64(TradeKillId)] = playerStat
 
-				VictStat, exists := p.Match.players[int64(TradeVictId)]
+				VictStat, exists := p.Match.Players[int64(TradeVictId)]
 
 				if !exists {
 					return
@@ -294,9 +295,67 @@ func (p *parser) TradeLogic() {
 
 				VictStat.TradeKills++
 
-				p.Match.players[int64(TradeVictId)] = VictStat
+				p.Match.Players[int64(TradeVictId)] = VictStat
+
 			}
 		}
 	}
 }
-func (p *parser) PositionGetter() {}
+
+func (p *parser) PositionGetter() {
+	roundInfo := &p.Match.Round[p.state.round-1]
+
+	for key, v := range roundInfo.RoundKills {
+		victimX, victimY := v.positionKilled.X, v.positionKilled.Y
+
+		killerX, KillerY := v.KillerPos.X, v.KillerPos.Y
+
+		for _, pos := range posData.Positions {
+			TruthValVict, whereVict := raycast(victimX, victimY, pos.Points, pos.Name)
+			TruthValKiller, whereKill := raycast(killerX, KillerY, pos.Points, pos.Name)
+
+			if TruthValVict == true {
+				Kill := roundInfo.RoundKills[key]
+
+				Kill.CalloutVict = whereVict
+
+				roundInfo.RoundKills[key] = Kill
+			}
+			if TruthValKiller == true {
+				Kill := roundInfo.RoundKills[key]
+
+				Kill.CalloutKill = whereKill
+
+				roundInfo.RoundKills[key] = Kill
+			}
+		}
+	}
+}
+
+func (p *parser) SideKillLogic() {
+	roundInfo := &p.Match.Round[p.state.round-1]
+
+	for key, _ := range roundInfo.RoundKills {
+
+		KillerId := roundInfo.RoundKills[key].KillerId
+		playerStat, exists := p.Match.Players[int64(KillerId)]
+
+		if !exists {
+			continue
+		}
+
+		if roundInfo.RoundKills[key].Killer == roundInfo.RoundKills[key].Victim {
+			continue
+		}
+
+		if roundInfo.RoundKills[key].KillerTeam == 3 {
+			playerStat.CTkills++
+		}
+
+		if roundInfo.RoundKills[key].KillerTeam == 2 {
+			playerStat.Tkills++
+		}
+
+		p.Match.Players[int64(KillerId)] = playerStat
+	}
+}

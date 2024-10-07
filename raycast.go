@@ -31,7 +31,7 @@ func jsonLoader(file string, data PositionData) PositionData {
 	return data
 }
 
-func raycast(victx, victy float64, edges []vector, name string) string {
+func raycast(victx, victy float64, edges []vector, name string) (bool, string) {
 	count := 0
 	where := ""
 	tolerance := 1e-7
@@ -59,9 +59,5 @@ func raycast(victx, victy float64, edges []vector, name string) string {
 
 	}
 
-	if count%2 == 1 {
-		return where
-	}
-
-	return where
+	return count%2 == 1, where
 }

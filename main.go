@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs"
 	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/common"
@@ -25,7 +26,7 @@ type MatchInfo struct {
 	TeamOne TeamA
 	TeamTwo TeamB
 	Round   []RoundInfo
-	players map[int64]playerstats
+	Players map[int64]playerstats
 }
 
 type TeamA struct {
@@ -56,6 +57,8 @@ func (p *parser) startParsing(fileDEM string) error {
 	p.parser.RegisterEventHandler(p.Bombplanted)
 	p.parser.RegisterEventHandler(p.playergetter)
 	p.parser.RegisterEventHandler(p.killHandler)
+	p.parser.RegisterEventHandler(p.ComplexRoundEndStuff)
+	p.parser.RegisterEventHandler(p.GetPresRoundKill)
 
 	e = p.parser.ParseToEnd()
 	check(e)
@@ -64,7 +67,7 @@ func (p *parser) startParsing(fileDEM string) error {
 }
 
 func main() {
-	demodir := "C:\\Users\\Mike\\Desktop\\DemoParserV2\\3dmax-vs-zero-tenacity-m3-dust2.dem"
+	demodir := "C:\\Users\\iphon\\Desktop\\DemoParseV2\\gun5-vs-passion-ua-m1-dust2.dem"
 
 	//have to do this or else it won't work because this is how golang works
 	data := &parser{Match: &MatchInfo{Round: make([]RoundInfo, 0)}}
@@ -72,13 +75,23 @@ func main() {
 	err := data.startParsing(demodir)
 	check(err)
 
+	outputFileName := fmt.Sprintf("%s-%s-%d.json", data.Match.TeamOne.Name, data.Match.TeamTwo.Name, 1)
+
+	jsonData, err2 := json.MarshalIndent(data, "", " ")
+	check(err2)
+
+	err3 := os.WriteFile(outputFileName, jsonData, 0644)
+	check(err3)
+
 	printData(data)
 }
 
 func printData(data *parser) {
-	fmt.Println("here")
-	for i, round := range data.Match.Round {
-		fmt.Printf("Round #%d - %+v\n", i, round)
+	// Iterate over the players map and print the SteamID and stats
+	fmt.Println(len(data.Match.Players))
+	for steamID, stats := range data.Match.Players {
+		fmt.Printf("SteamID: %d\n", steamID)
+		fmt.Printf("Player Stats: %+v\n", stats)
 	}
 }
 

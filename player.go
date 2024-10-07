@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/common"
 	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/events"
+	"math"
 	"time"
 )
 
@@ -63,6 +65,8 @@ type roundKill struct {
 	positionKilled victPos
 	KillerPos      killerPos
 	Opening        bool
+	CalloutVict    string
+	CalloutKill    string
 }
 
 type victPos struct {
@@ -77,19 +81,21 @@ func (p *parser) getActivePlayers(c []*common.Player) {
 	for _, player := range c {
 		steamId := player.SteamID64
 
-		if p.Match.players == nil {
-			p.Match.players = make(map[int64]playerstats)
+		if p.Match.Players == nil {
+			p.Match.Players = make(map[int64]playerstats)
+
 		}
 
-		if _, exists := p.Match.players[int64(steamId)]; !exists {
+		if _, exists := p.Match.Players[int64(steamId)]; exists {
 			return
 		} else {
-			p.Match.players[int64(steamId)] = p.ThePlayer(player)
+			p.Match.Players[int64(steamId)] = p.ThePlayer(player)
 		}
 	}
 }
 
 func (p *parser) ThePlayer(player *common.Player) playerstats {
+	fmt.Printf("NOOPE\n")
 	return playerstats{
 		ImpactPerRnd:     0,
 		UserName:         player.Name,
@@ -148,10 +154,9 @@ func (p *parser) playergetter(e events.RoundEnd) {
 func (p *parser) statsetter(c []*common.Player) {
 
 	//gs := p.parser.GameState()
-
 	for i := range c {
 		steamId := c[i].SteamID64
-		playerStat, exists := p.Match.players[int64(steamId)]
+		playerStat, exists := p.Match.Players[int64(steamId)]
 
 		if !exists {
 			continue
@@ -162,7 +167,30 @@ func (p *parser) statsetter(c []*common.Player) {
 		playerStat.Deaths = c[i].Deaths()
 		playerStat.Totaldmg = c[i].TotalDamage()
 		playerStat.TotalUtilDmg = c[i].UtilityDamage()
+		playerStat.ADR = math.Round(p.calcADR(playerStat.Totaldmg)*100) / 100
+		playerStat.HeadPercent = math.Round(p.calcHSPercent(playerStat.Kills, playerStat.HS)*100) / 100
+		playerStat.AvgKillsRnd = math.Round(p.calcKPR(playerStat.Kills)*100) / 100
+		playerStat.AvgDeathsRnd = math.Round(p.calcDPR(playerStat.Deaths)*100) / 100
+		playerStat.AvgAssistsRnd = math.Round(p.calcAPR(playerStat.Assists)*100) / 100
+		playerStat.ImpactPerRnd = math.Round(p.calcImpact(playerStat.AvgKillsRnd, playerStat.AvgAssistsRnd)*100) / 100
+
+		playerName := c[i].Name
+		multicheck := c[i].Kills() - playerMap[playerName]
+
+		switch {
+		case multicheck == 2:
+			playerStat.Round2k++
+		case multicheck == 3:
+			playerStat.Round3k++
+		case multicheck == 4:
+			playerStat.Round4k++
+		case multicheck == 5:
+			playerStat.Round5k++
+		}
+
+		p.Match.Players[int64(steamId)] = playerStat
 	}
+
 }
 
 func (p *parser) killHandler(e events.Kill) {
@@ -175,6 +203,10 @@ func (p *parser) killHandler(e events.Kill) {
 
 	if p.parser.GameState().IsWarmupPeriod() {
 		p.state.warmupkill = append(p.state.warmupkill, e)
+	}
+
+	if e.IsHeadshot {
+		p.addHS(e.Killer)
 	}
 
 	var assistorName string
@@ -233,4 +265,68 @@ func (p *parser) killHandler(e events.Kill) {
 		}
 	}
 
+	if p.Match.Round[p.state.round-1].FirstKillCount == 0 {
+		p.addFirst(e.Killer, e.Victim)
+		p.Match.Round[p.state.round-1].FirstKillCount++
+	}
+
+	p.updateWeaponKills(e.Killer, e.Weapon.Type)
+	p.IsFlashed(e.Victim, e.Killer)
+}
+
+func (p *parser) IsFlashed(c *common.Player, c2 *common.Player) {
+	playerIdKill := c2.SteamID64
+
+	killer, exists := p.Match.Players[int64(playerIdKill)]
+
+	if !exists {
+		return
+	}
+
+	flashDurationInSec := time.Duration(c.FlashDuration) * time.Second
+
+	if flashDurationInSec >= 2*time.Second {
+		killer.EffectiveFlashes++
+		p.Match.Players[int64(playerIdKill)] = killer
+	}
+}
+
+func (p *parser) addHS(c *common.Player) {
+	playerId := c.SteamID64
+	playerStats, exists := p.Match.Players[int64(playerId)]
+	if !exists {
+		return
+	}
+	playerStats.HS++
+
+	p.Match.Players[int64(playerId)] = playerStats
+}
+
+func (p *parser) updateWeaponKills(c *common.Player, weaponType common.EquipmentType) {
+	playerId := c.SteamID64
+	playerStats, exists := p.Match.Players[int64(playerId)]
+	if !exists {
+		return
+	}
+
+	playerStats.WeaponKill[int(weaponType)]++
+	p.Match.Players[int64(playerId)] = playerStats
+}
+func (p *parser) addFirst(c *common.Player, c2 *common.Player) {
+	playerKillerID := c.SteamID64
+	playerVictId := c2.SteamID64
+
+	playerStatKill, exists := p.Match.Players[int64(playerKillerID)]
+	if !exists {
+		return
+	}
+	playerStatKill.Firstkill++
+	p.Match.Players[int64(playerKillerID)] = playerStatKill
+
+	playerStatsVict, exists := p.Match.Players[int64(playerVictId)]
+	if !exists {
+		return
+	}
+	playerStatsVict.Firstkill++
+	p.Match.Players[int64(playerVictId)] = playerStatsVict
 }
